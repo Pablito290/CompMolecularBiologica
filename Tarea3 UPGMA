@@ -1,0 +1,212 @@
+#include <iostream>
+#include <vector>
+#include <string>
+#include <cmath>
+#include <limits>
+#include <iomanip>
+#include <algorithm>
+
+using namespace std;
+
+typedef string cadena;
+
+int diferencias(cadena cad1, cadena cad2) {
+    int contador = 0;
+    int minimo = min(cad1.length(), cad2.length());
+    for (int i = 0; i < minimo; i++) {
+        if (cad1[i] != cad2[i]) contador++;
+    }
+    return contador;
+}
+
+float formula(cadena cad1, cadena cad2) {
+    int dif = diferencias(cad1, cad2);
+    float p = (float)dif / min(cad1.length(), cad2.length());
+    if (p >= 0.75) return numeric_limits<float>::infinity();
+    return -0.75f * log(1 - (4.0f / 3.0f) * p);
+}
+
+float distancia_apellidos(string a, string b) {
+    transform(a.begin(), a.end(), a.begin(), ::tolower);
+    transform(b.begin(), b.end(), b.begin(), ::tolower);
+    int iguales = 0;
+    for (char c : a) {
+        if (isalpha(c) && b.find(c) != string::npos) iguales++;
+    }
+    float sim = (float)iguales / max(a.length(), b.length());
+    return 1.0f - sim;
+}
+
+struct Nodo {
+    string nombre;
+    int size;
+    Nodo(string n, int s = 1) : nombre(n), size(s) {}
+};
+
+vector<vector<float>> construirMatrizDistancias(const vector<string>& etiquetas, bool esADN) {
+    int n = etiquetas.size();
+    vector<vector<float>> distancias(n, vector<float>(n, 0));
+    for (int i = 0; i < n; i++) {
+        for (int j = i + 1; j < n; j++) {
+            float d = esADN ? formula(etiquetas[i], etiquetas[j]) : distancia_apellidos(etiquetas[i], etiquetas[j]);
+            distancias[i][j] = distancias[j][i] = d;
+        }
+    }
+    return distancias;
+}
+
+void upgma(const vector<string>& etiquetas, bool esADN) {
+    int n = etiquetas.size();
+    vector<Nodo> nodos;
+    auto distancias = construirMatrizDistancias(etiquetas, esADN);
+
+    for (int i = 0; i < n; i++) nodos.push_back(Nodo("S" + to_string(i + 1)));
+
+    while (n > 1) {
+        float minDist = numeric_limits<float>::infinity();
+        int x = -1, y = -1;
+        for (int i = 0; i < distancias.size(); i++) {
+            for (int j = i + 1; j < distancias.size(); j++) {
+                if (distancias[i][j] < minDist) {
+                    minDist = distancias[i][j];
+                    x = i; y = j;
+                }
+            }
+        }
+
+        string nuevoNombre = "(" + nodos[x].nombre + "," + nodos[y].nombre + ")";
+        int nuevoTam = nodos[x].size + nodos[y].size;
+        Nodo nuevoNodo(nuevoNombre, nuevoTam);
+
+        vector<float> nuevaFila;
+        for (int k = 0; k < distancias.size(); k++) {
+            if (k == x || k == y) continue;
+            float d = (distancias[x][k] * nodos[x].size + distancias[y][k] * nodos[y].size) / nuevoTam;
+            nuevaFila.push_back(d);
+        }
+
+        vector<vector<float>> nuevaMatriz;
+        vector<Nodo> nuevosNodos;
+
+        for (int i = 0; i < distancias.size(); i++) {
+            if (i == x || i == y) continue;
+            vector<float> fila;
+            for (int j = 0; j < distancias.size(); j++) {
+                if (j == x || j == y) continue;
+                fila.push_back(distancias[i][j]);
+            }
+            nuevaMatriz.push_back(fila);
+            nuevosNodos.push_back(nodos[i]);
+        }
+
+        for (int i = 0; i < nuevaFila.size(); i++) {
+            nuevaMatriz[i].push_back(nuevaFila[i]);
+        }
+        nuevaFila.push_back(0);
+        nuevaMatriz.push_back(nuevaFila);
+        nuevosNodos.push_back(nuevoNodo);
+
+        distancias = nuevaMatriz;
+        nodos = nuevosNodos;
+        n--;
+    }
+
+    cout << "\nArbol UPGMA: " << nodos[0].nombre << endl;
+}
+
+void neighborJoining(const vector<string>& etiquetas, bool esADN) {
+    int n = etiquetas.size();
+    vector<Nodo> nodos;
+    auto D = construirMatrizDistancias(etiquetas, esADN);
+
+    for (int i = 0; i < n; i++) nodos.push_back(Nodo("S" + to_string(i + 1)));
+
+    while (D.size() > 2) {
+        int N = D.size();
+        vector<float> R(N, 0);
+
+        for (int i = 0; i < N; i++) {
+            for (int j = 0; j < N; j++) {
+                if (i != j) R[i] += D[i][j];
+            }
+        }
+
+        float minQ = numeric_limits<float>::infinity();
+        int x = -1, y = -1;
+        for (int i = 0; i < N; i++) {
+            for (int j = i + 1; j < N; j++) {
+                float Q = (N - 2) * D[i][j] - R[i] - R[j];
+                if (Q < minQ) {
+                    minQ = Q;
+                    x = i; y = j;
+                }
+            }
+        }
+
+        float delta = (R[x] - R[y]) / (N - 2);
+        float limb_x = 0.5f * (D[x][y] + delta);
+        float limb_y = 0.5f * (D[x][y] - delta);
+
+        string nuevoNombre = "(" + nodos[x].nombre + ":" + to_string(limb_x) + "," + nodos[y].nombre + ":" + to_string(limb_y) + ")";
+        Nodo nuevoNodo(nuevoNombre);
+
+        vector<vector<float>> D_nuevo;
+        vector<Nodo> nodos_nuevos;
+
+        for (int i = 0; i < N; i++) {
+            if (i != x && i != y) {
+                vector<float> fila;
+                for (int j = 0; j < N; j++) {
+                    if (j != x && j != y) fila.push_back(D[i][j]);
+                }
+                D_nuevo.push_back(fila);
+                nodos_nuevos.push_back(nodos[i]);
+            }
+        }
+
+        vector<float> nuevaFila;
+        for (int i = 0; i < D_nuevo.size(); i++) {
+            int real_i = (i >= x ? i + 1 : i);
+            if (real_i == y || real_i == x) real_i++;
+            float d = (D[x][real_i] + D[y][real_i] - D[x][y]) / 2.0f;
+            D_nuevo[i].push_back(d);
+            nuevaFila.push_back(d);
+        }
+        nuevaFila.push_back(0);
+        D_nuevo.push_back(nuevaFila);
+        nodos_nuevos.push_back(nuevoNodo);
+
+        D = D_nuevo;
+        nodos = nodos_nuevos;
+    }
+
+    cout << "\nArbol NJ: (" << nodos[0].nombre << "," << nodos[1].nombre << ")" << endl;
+}
+
+int main() {
+    vector<cadena> secuencias = {
+        "ATTGCCATT",
+        "ATGGCCATT",
+        "ATCCAATTTT",
+        "ATCTTCTT",
+        "ACTGACC"
+    };
+
+    vector<string> apellidos = {
+        "CACERES URQUIZO", //1
+        "CARAZAS BARRIOS",  //2
+        "CHOQUE CONDORI",  //3
+        "LEON ZARATE",  //4
+        "TUPAC VALDIVIA"  //5
+    };
+
+    cout << "===== CON ADN =====" << endl;
+    upgma(secuencias, true);
+    neighborJoining(secuencias, true);
+
+    cout << "\n===== CON APELLIDOS =====" << endl;
+    upgma(apellidos, false);
+    neighborJoining(apellidos, false);
+
+    return 0;
+}
